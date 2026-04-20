@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Practice — amicos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: #FAF7F2; }
+
+    .fade-in  { animation: fadeIn  0.3s ease forwards; }
+    .card-reveal { animation: cardReveal 0.5s ease forwards; }
+    .practice-btn:hover { transform: translateX(2px); }
+
+    @keyframes fadeIn    { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes cardReveal{ from { opacity:0; transform:translateY(10px);  } to { opacity:1; transform:translateY(0); } }
+
+    input:focus  { outline: none; border-color: #E8A820 !important; }
+    button:focus { outline: none; }
+
+    ::-webkit-scrollbar       { width: 4px; }
+    ::-webkit-scrollbar-track { background: #FAF7F2; }
+    ::-webkit-scrollbar-thumb { background: #F3EDE3; border-radius: 99px; }
+
+    /* card animation delays via data attr */
+    .card-reveal[data-i="0"] { animation-delay: 0ms;   }
+    .card-reveal[data-i="1"] { animation-delay: 75ms;  }
+    .card-reveal[data-i="2"] { animation-delay: 150ms; }
+    .card-reveal[data-i="3"] { animation-delay: 225ms; }
+    .card-reveal[data-i="4"] { animation-delay: 300ms; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const VALUES = [
+      { id: "movement",   name: "Movement",   practices: ["Running", "Yoga", "Weight"] },
+      { id: "meaning",    name: "Meaning",    practices: ["Journaling", "Prayer", "Meditation"] },
+      { id: "purpose",    name: "Purpose",    practices: ["Intention", "Plan", "Review"] },
+      { id: "connection", name: "Connection", practices: ["Family", "Friends", "Coworkers"] },
+      { id: "health",     name: "Health",     practices: ["Plants", "Moderation", "Real Food"] },
+    ];
+
+    const initialState = () => {
+      const s = {};
+      VALUES.forEach((v) => {
+        s[v.id] = { score: 0, practices: {} };
+        v.practices.forEach((p) => (s[v.id].practices[p] = false));
+      });
+      return s;
+    };
+
+    const EnsoMark = ({ size = 32 }) => (
+      <svg width={size} height={size} viewBox="0 0 120 120" fill="none">
+        <path
+          d="M96 26C84 10,56 8,36 24C14 42,10 72,22 90C34 108,64 118,88 104C104 94,112 76,108 60"
+          stroke="#E8A820" strokeWidth="9" strokeLinecap="round"
+        />
+        <path
+          d="M108 60C106 52,102 46,96 42"
+          stroke="#7BA7BC" strokeWidth="9" strokeLinecap="round"
+        />
+      </svg>
+    );
+
+    const microcopy = (score, max) => {
+      if (score === 0)          return "A quiet morning. Track what matters today.";
+      if (score >= max * 0.85)  return "Done. That's one more thread in the fabric.";
+      if (score >= max * 0.5)   return "Halfway there — each small act compounds.";
+      return "Start with one thing. That's enough.";
+    };
+
+    /* ── Inline style objects ── */
+    const sh = {
+      shell:      { minHeight: "100vh", background: "#FAF7F2", fontFamily: "'DM Sans', sans-serif", fontWeight: 300, color: "#2C2420", paddingBottom: 90 },
+      header:     { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 40px 18px", borderBottom: "1px solid #F3EDE3", background: "#FAF7F2" },
+      hLeft:      { display: "flex", alignItems: "center", gap: 14 },
+      wordmark:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 300, letterSpacing: "0.18em", color: "#2C2420", lineHeight: 1 },
+      dateLine:   { fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "#9C8E86", marginTop: 4 },
+      hRight:     { display: "flex", alignItems: "center", gap: 14 },
+      totalPill:  { background: "#FDF0C4", borderRadius: 50, padding: "6px 18px", display: "flex", alignItems: "baseline" },
+      totalNum:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 400, color: "#2C2420" },
+      totalDenom: { fontSize: 13, color: "#9C8E86" },
+      iconBtn:    { width: 36, height: 36, borderRadius: 50, border: "1.5px solid #F3EDE3", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+      cfgPanel:   { margin: "0 40px 4px", background: "#fff", border: "1px solid #F3EDE3", borderRadius: 16, padding: "24px 28px" },
+      cfgHeading: { fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 300, color: "#2C2420", marginBottom: 8 },
+      cfgNote:    { fontSize: 12, color: "#9C8E86", lineHeight: 1.8, marginBottom: 6 },
+      label:      { display: "block", fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", color: "#9C8E86", marginTop: 14, marginBottom: 6 },
+      input:      { width: "100%", background: "#FAF7F2", border: "1px solid #F3EDE3", borderRadius: 10, padding: "11px 14px", color: "#2C2420", fontSize: 13, fontFamily: "inherit", fontWeight: 300 },
+      saveBtn:    { marginTop: 18, padding: "11px 28px", background: "#E8A820", color: "#fff", border: "none", borderRadius: 50, fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", fontWeight: 400 },
+      toast:      { margin: "8px 40px", padding: "12px 18px", borderRadius: 10, border: "1px solid", fontSize: 13 },
+      intro:      { padding: "26px 40px 6px", fontFamily: "'Cormorant Garamond', serif", fontSize: 17, fontWeight: 300, fontStyle: "italic", color: "#9C8E86" },
+      grid:       { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))", gap: 18, padding: "18px 40px" },
+      card:       { background: "#fff", border: "1px solid #F3EDE3", borderRadius: 16, padding: "22px 20px", opacity: 0 },
+      cardTop:    { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 },
+      cardName:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 300, letterSpacing: "0.03em" },
+      cardCount:  { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9C8E86" },
+      track:      { height: 2, background: "#F3EDE3", borderRadius: 99, marginBottom: 16, overflow: "hidden" },
+      fill:       { height: "100%", background: "#E8A820", borderRadius: 99, transition: "width 0.4s ease" },
+      practices:  { display: "flex", flexDirection: "column", gap: 7, marginBottom: 18 },
+      practice:   { display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderRadius: 10, border: "1px solid", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 300, transition: "all 0.18s ease", textAlign: "left", width: "100%" },
+      scoreRow:   { display: "flex", alignItems: "center", justifyContent: "space-between" },
+      scoreLabel: { fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "#9C8E86" },
+      scoreBtns:  { display: "flex", gap: 6 },
+      scoreBtn:   { width: 32, height: 32, borderRadius: 50, border: "1.5px solid", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 300, transition: "all 0.18s ease" },
+      footer:     { position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(250,247,242,0.96)", backdropFilter: "blur(10px)", borderTop: "1px solid #F3EDE3", padding: "14px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" },
+      fScore:     { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 300, color: "#2C2420", lineHeight: 1 },
+      fLabel:     { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9C8E86", marginTop: 3 },
+      fActions:   { display: "flex", gap: 10 },
+      primaryBtn: { padding: "11px 26px", background: "#E8A820", color: "#fff", border: "none", borderRadius: 50, fontSize: 12, fontWeight: 400, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.2s" },
+      ghostBtn:   { padding: "11px 20px", background: "transparent", color: "#9C8E86", border: "1.5px solid #F3EDE3", borderRadius: 50, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit" },
+    };
+
+    function HabitTracker() {
+      const [habits,      setHabits]      = useState(initialState);
+      const [showConfig,  setShowConfig]  = useState(false);
+      const [syncStatus,  setSyncStatus]  = useState(null);
+      const [submitted,   setSubmitted]   = useState(false);
+
+      const flash = (type, msg) => {
+        setSyncStatus({ type, msg });
+        setTimeout(() => setSyncStatus(null), 3000);
+      };
+
+      const togglePractice = (valueId, practice) =>
+        setHabits((prev) => ({
+          ...prev,
+          [valueId]: {
+            ...prev[valueId],
+            practices: { ...prev[valueId].practices, [practice]: !prev[valueId].practices[practice] },
+          },
+        }));
+
+      const setScore = (valueId, score) =>
+        setHabits((prev) => ({ ...prev, [valueId]: { ...prev[valueId], score } }));
+
+      const resetDay = () => { setHabits(initialState()); setSubmitted(false); setSyncStatus(null); };
+
+      const totalScore = VALUES.reduce((sum, v) => sum + (habits[v.id].score || 0), 0);
+      const maxScore   = VALUES.length * 3;
+
+      const dateStr = new Date().toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric",
+      });
+
+      return (
+        <div style={sh.shell}>
+
+          {/* ── Header ── */}
+          <header style={sh.header}>
+            <div style={sh.hLeft}>
+              <EnsoMark size={38} />
+              <div>
+                <div style={sh.wordmark}>amicos</div>
+                <div style={sh.dateLine}>{dateStr}</div>
+              </div>
+            </div>
+            <div style={sh.hRight}>
+              <div style={sh.totalPill}>
+                <span style={sh.totalNum}>{totalScore}</span>
+                <span style={sh.totalDenom}>&nbsp;/ {maxScore}</span>
+              </div>
+              <button style={sh.iconBtn} onClick={() => setShowConfig(!showConfig)} title="Coming soon: Notion sync">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9C8E86" strokeWidth="1.8">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                </svg>
+              </button>
+            </div>
+          </header>
+
+          {/* ── Coming soon panel ── */}
+          {showConfig && (
+            <div style={sh.cfgPanel} className="fade-in">
+              <div style={sh.cfgHeading}>Notion Sync</div>
+              <p style={sh.cfgNote}>
+                Notion integration is coming soon. For now, your daily entries are tracked here in the browser.
+                Check back for automatic logging to your Notion database.
+              </p>
+            </div>
+          )}
+
+          {/* ── Status toast ── */}
+          {syncStatus && (
+            <div style={{
+              ...sh.toast,
+              background:  syncStatus.type === "success" ? "#FDF0C4" : "#FEE8E8",
+              borderColor: syncStatus.type === "success" ? "#E8A820" : "#E87A7A",
+              color:       syncStatus.type === "success" ? "#5C4E46" : "#8B2020",
+            }} className="fade-in">
+              {syncStatus.msg}
+            </div>
+          )}
+
+          {/* ── Intro line ── */}
+          <div style={sh.intro}>{microcopy(totalScore, maxScore)}</div>
+
+          {/* ── Value cards ── */}
+          <div style={sh.grid}>
+            {VALUES.map((v, vi) => {
+              const checked = Object.values(habits[v.id].practices).filter(Boolean).length;
+              const pct     = (checked / v.practices.length) * 100;
+              const score   = habits[v.id].score;
+
+              return (
+                <div key={v.id} style={sh.card} className="card-reveal" data-i={vi}>
+
+                  <div style={sh.cardTop}>
+                    <div style={sh.cardName}>{v.name}</div>
+                    <div style={sh.cardCount}>{checked} / {v.practices.length}</div>
+                  </div>
+
+                  <div style={sh.track}>
+                    <div style={{ ...sh.fill, width: `${pct}%` }} />
+                  </div>
+
+                  <div style={sh.practices}>
+                    {v.practices.map((p) => {
+                      const done = habits[v.id].practices[p];
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => togglePractice(v.id, p)}
+                          className="practice-btn"
+                          style={{
+                            ...sh.practice,
+                            background:  done ? "#FDF0C4" : "#FAF7F2",
+                            borderColor: done ? "#E8A820" : "#F3EDE3",
+                            color:       done ? "#2C2420" : "#9C8E86",
+                          }}
+                        >
+                          <span style={{ color: done ? "#E8A820" : "#D8CEC8", fontSize: 10 }}>
+                            {done ? "●" : "○"}
+                          </span>
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div style={sh.scoreRow}>
+                    <span style={sh.scoreLabel}>Daily score</span>
+                    <div style={sh.scoreBtns}>
+                      {[1, 2, 3].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setScore(v.id, n)}
+                          style={{
+                            ...sh.scoreBtn,
+                            background:  score === n ? "#E8A820" : score > n ? "#FDF0C4" : "#fff",
+                            borderColor: score >= n  ? "#E8A820" : "#F3EDE3",
+                            color:       score === n ? "#fff"    : score > n ? "#C08010" : "#9C8E86",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Footer ── */}
+          <footer style={sh.footer}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <EnsoMark size={22} />
+              <div>
+                <div style={sh.fScore}>
+                  {totalScore}
+                  <span style={{ fontSize: 15, color: "#9C8E86", fontWeight: 300 }}> / {maxScore}</span>
+                </div>
+                <div style={sh.fLabel}>today's total</div>
+              </div>
+            </div>
+            <div style={sh.fActions}>
+              {submitted && (
+                <button style={sh.ghostBtn} onClick={resetDay}>Reset day</button>
+              )}
+              <button
+                style={sh.primaryBtn}
+                onClick={() => { flash("success", "Saved — Notion sync coming soon."); setSubmitted(true); }}
+              >
+                Save day
+              </button>
+            </div>
+          </footer>
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<HabitTracker />);
+  </script>
+</body>
+</html>
