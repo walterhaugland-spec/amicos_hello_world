@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Practice — amicos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: #FAF7F2; }
+
+    .fade-in  { animation: fadeIn  0.3s ease forwards; }
+    .card-reveal { animation: cardReveal 0.5s ease forwards; }
+    .practice-btn:hover { transform: translateX(2px); }
+
+    @keyframes fadeIn    { from { opacity:0; transform:translateY(-5px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes cardReveal{ from { opacity:0; transform:translateY(10px);  } to { opacity:1; transform:translateY(0); } }
+
+    input:focus, textarea:focus  { outline: none; border-color: #E8A820 !important; }
+    button:focus { outline: none; }
+
+    ::-webkit-scrollbar       { width: 4px; }
+    ::-webkit-scrollbar-track { background: #FAF7F2; }
+    ::-webkit-scrollbar-thumb { background: #F3EDE3; border-radius: 99px; }
+
+    /* card animation delays via data attr */
+    .card-reveal[data-i="0"] { animation-delay: 0ms;   }
+    .card-reveal[data-i="1"] { animation-delay: 75ms;  }
+    .card-reveal[data-i="2"] { animation-delay: 150ms; }
+    .card-reveal[data-i="3"] { animation-delay: 225ms; }
+    .card-reveal[data-i="4"] { animation-delay: 300ms; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const VALUES = [
+      { id: "movement",   name: "Movement",   practices: ["Running", "Yoga", "Weight"] },
+      { id: "meaning",    name: "Meaning",    practices: ["Journaling", "Prayer", "Meditation"] },
+      { id: "purpose",    name: "Purpose",    practices: ["Intention", "Plan", "Review"] },
+      { id: "connection", name: "Connection", practices: ["Family", "Friends", "Coworkers"] },
+      { id: "health",     name: "Health",     practices: ["Plants", "Moderation", "Real Food"] },
+    ];
+
+    // Fixed categorical order, validated for CVD-safe adjacency (see dataviz palette check).
+    const TREND_COLORS = {
+      movement:   "#2E6DA4",
+      meaning:    "#D9730D",
+      purpose:    "#1F8A57",
+      connection: "#7A4FA0",
+      health:     "#C23B34",
+    };
+
+    const HISTORY_KEY = "amicos_habit_history_v1";
+
+    const initialState = () => {
+      const s = {};
+      VALUES.forEach((v) => {
+        s[v.id] = { score: 0, practices: {} };
+        v.practices.forEach((p) => (s[v.id].practices[p] = false));
+      });
+      return s;
+    };
+
+    /* ── Local persistence + date helpers ── */
+    const loadHistory = () => {
+      try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        return {};
+      }
+    };
+
+    const saveHistory = (h) => {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)); } catch (e) { /* storage unavailable */ }
+    };
+
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const dateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+    const lastNDays = (n) => {
+      const today = new Date();
+      const arr = [];
+      for (let i = n - 1; i >= 0; i--) arr.push(addDays(today, -i));
+      return arr;
+    };
+
+    const EnsoMark = ({ size = 32 }) => (
+      <svg width={size} height={size} viewBox="0 0 120 120" fill="none">
+        <path
+          d="M96 26C84 10,56 8,36 24C14 42,10 72,22 90C34 108,64 118,88 104C104 94,112 76,108 60"
+          stroke="#E8A820" strokeWidth="9" strokeLinecap="round"
+        />
+        <path
+          d="M108 60C106 52,102 46,96 42"
+          stroke="#7BA7BC" strokeWidth="9" strokeLinecap="round"
+        />
+      </svg>
+    );
+
+    const microcopy = (score, max) => {
+      if (score === 0)          return "A quiet morning. Track what matters today.";
+      if (score >= max * 0.85)  return "Done. That's one more thread in the fabric.";
+      if (score >= max * 0.5)   return "Halfway there — each small act compounds.";
+      return "Start with one thing. That's enough.";
+    };
+
+    /* ── Inline style objects ── */
+    const sh = {
+      shell:      { minHeight: "100vh", background: "#FAF7F2", fontFamily: "'DM Sans', sans-serif", fontWeight: 300, color: "#2C2420", paddingBottom: 90 },
+      header:     { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 40px 18px", borderBottom: "1px solid #F3EDE3", background: "#FAF7F2" },
+      hLeft:      { display: "flex", alignItems: "center", gap: 14 },
+      wordmark:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 300, letterSpacing: "0.18em", color: "#2C2420", lineHeight: 1 },
+      dateLine:   { fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "#9C8E86", marginTop: 4 },
+      hRight:     { display: "flex", alignItems: "center", gap: 14 },
+      totalPill:  { background: "#FDF0C4", borderRadius: 50, padding: "6px 18px", display: "flex", alignItems: "baseline" },
+      totalNum:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 400, color: "#2C2420" },
+      totalDenom: { fontSize: 13, color: "#9C8E86" },
+      iconBtn:    { width: 36, height: 36, borderRadius: 50, border: "1.5px solid #F3EDE3", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+      cfgPanel:   { margin: "0 40px 4px", background: "#fff", border: "1px solid #F3EDE3", borderRadius: 16, padding: "24px 28px" },
+      cfgHeading: { fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 300, color: "#2C2420", marginBottom: 8 },
+      cfgNote:    { fontSize: 12, color: "#9C8E86", lineHeight: 1.8, marginBottom: 6 },
+      label:      { display: "block", fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", color: "#9C8E86", marginTop: 14, marginBottom: 6 },
+      input:      { width: "100%", background: "#FAF7F2", border: "1px solid #F3EDE3", borderRadius: 10, padding: "11px 14px", color: "#2C2420", fontSize: 13, fontFamily: "inherit", fontWeight: 300 },
+      saveBtn:    { marginTop: 18, padding: "11px 28px", background: "#E8A820", color: "#fff", border: "none", borderRadius: 50, fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", fontWeight: 400 },
+      toast:      { margin: "8px 40px", padding: "12px 18px", borderRadius: 10, border: "1px solid", fontSize: 13 },
+      intro:      { padding: "26px 40px 6px", fontFamily: "'Cormorant Garamond', serif", fontSize: 17, fontWeight: 300, fontStyle: "italic", color: "#9C8E86" },
+      grid:       { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))", gap: 18, padding: "18px 40px" },
+      card:       { background: "#fff", border: "1px solid #F3EDE3", borderRadius: 16, padding: "22px 20px", opacity: 0 },
+      cardTop:    { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 },
+      cardName:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 300, letterSpacing: "0.03em" },
+      cardCount:  { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9C8E86" },
+      track:      { height: 2, background: "#F3EDE3", borderRadius: 99, marginBottom: 16, overflow: "hidden" },
+      fill:       { height: "100%", background: "#E8A820", borderRadius: 99, transition: "width 0.4s ease" },
+      practices:  { display: "flex", flexDirection: "column", gap: 7, marginBottom: 18 },
+      practice:   { display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderRadius: 10, border: "1px solid", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 300, transition: "all 0.18s ease", textAlign: "left", width: "100%" },
+      scoreRow:   { display: "flex", alignItems: "center", justifyContent: "space-between" },
+      scoreLabel: { fontSize: 10, letterSpacing: "0.2em", textTransform: "uppercase", color: "#9C8E86" },
+      scoreBtns:  { display: "flex", gap: 6 },
+      scoreBtn:   { width: 32, height: 32, borderRadius: 50, border: "1.5px solid", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 300, transition: "all 0.18s ease" },
+
+      trendCard:    { margin: "6px 40px 4px", background: "#fff", border: "1px solid #F3EDE3", borderRadius: 16, padding: "24px 28px 20px" },
+      trendHeading: { fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 300, color: "#2C2420", marginBottom: 4 },
+      trendSub:     { fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#9C8E86", marginBottom: 6 },
+      legendRow:    { display: "flex", flexWrap: "wrap", columnGap: 20, rowGap: 8, marginTop: 14 },
+      legendItem:   { display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#5C4E46" },
+      legendDot:    { width: 9, height: 9, borderRadius: "50%", flexShrink: 0, display: "inline-block" },
+      legendScore:  { color: "#9C8E86", fontSize: 11 },
+
+      notesCard:      { margin: "6px 40px 20px", background: "#fff", border: "1px solid #F3EDE3", borderRadius: 16, padding: "24px 28px" },
+      notesHeading:   { fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 300, color: "#2C2420", marginBottom: 10 },
+      textarea:       { width: "100%", background: "#FAF7F2", border: "1px solid #F3EDE3", borderRadius: 10, padding: "12px 14px", color: "#2C2420", fontSize: 13, fontFamily: "inherit", fontWeight: 300, resize: "vertical", minHeight: 84, lineHeight: 1.6 },
+      notesLogWrap:   { marginTop: 16, display: "flex", flexDirection: "column", gap: 10, maxHeight: 190, overflowY: "auto" },
+      notesLogItem:   { fontSize: 12, color: "#5C4E46", lineHeight: 1.6, borderLeft: "2px solid #F3EDE3", paddingLeft: 10, whiteSpace: "pre-wrap" },
+      notesLogDate:   { fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "#9C8E86", marginBottom: 2 },
+
+      footer:     { position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(250,247,242,0.96)", backdropFilter: "blur(10px)", borderTop: "1px solid #F3EDE3", padding: "14px 40px", display: "flex", alignItems: "center", justifyContent: "space-between" },
+      fScore:     { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 300, color: "#2C2420", lineHeight: 1 },
+      fLabel:     { fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9C8E86", marginTop: 3 },
+      fActions:   { display: "flex", gap: 10 },
+      primaryBtn: { padding: "11px 26px", background: "#E8A820", color: "#fff", border: "none", borderRadius: 50, fontSize: 12, fontWeight: 400, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", transition: "opacity 0.2s" },
+      ghostBtn:   { padding: "11px 20px", background: "transparent", color: "#9C8E86", border: "1.5px solid #F3EDE3", borderRadius: 50, fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit" },
+    };
+
+    /* ── Trend chart geometry ── */
+    const TREND_DAYS = 14;
+    const CW = 640, CH = 190, PAD_L = 26, PAD_R = 14, PAD_T = 14, PAD_B = 24;
+    const PLOT_W = CW - PAD_L - PAD_R;
+    const PLOT_H = CH - PAD_T - PAD_B;
+    const xFor = (i, n) => PAD_L + (n === 1 ? 0 : (i / (n - 1)) * PLOT_W);
+    const yFor = (score) => PAD_T + (1 - score / 3) * PLOT_H;
+    const pathFor = (points) =>
+      points.map((s, i) => `${i === 0 ? "M" : "L"} ${xFor(i, points.length).toFixed(1)} ${yFor(s).toFixed(1)}`).join(" ");
+
+    function TrendChart({ history, habits, todayKey }) {
+      const days = lastNDays(TREND_DAYS);
+      const series = VALUES.map((v) => ({
+        ...v,
+        color: TREND_COLORS[v.id],
+        points: days.map((d) => {
+          const key = dateKey(d);
+          if (key === todayKey) return habits[v.id].score || 0;
+          return (history[key] && history[key].scores && history[key].scores[v.id]) || 0;
+        }),
+      }));
+      const labelIdxs = [0, Math.round((days.length - 1) / 2), days.length - 1];
+
+      return (
+        <div style={sh.trendCard}>
+          <div style={sh.trendHeading}>Trend</div>
+          <div style={sh.trendSub}>Daily score by category · last {TREND_DAYS} days</div>
+          <svg viewBox={`0 0 ${CW} ${CH}`} style={{ width: "100%", height: "auto", display: "block" }}>
+            {[0, 1, 2, 3].map((s) => (
+              <g key={s}>
+                <line x1={PAD_L} y1={yFor(s)} x2={CW - PAD_R} y2={yFor(s)} stroke="#F3EDE3" strokeWidth="1" />
+                <text x={PAD_L - 8} y={yFor(s) + 3} textAnchor="end" fontSize="9" fill="#9C8E86" fontFamily="'DM Sans', sans-serif">{s}</text>
+              </g>
+            ))}
+            {labelIdxs.map((i) => (
+              <text
+                key={i}
+                x={xFor(i, days.length)}
+                y={CH - 6}
+                textAnchor={i === 0 ? "start" : i === days.length - 1 ? "end" : "middle"}
+                fontSize="9" fill="#9C8E86" fontFamily="'DM Sans', sans-serif"
+              >
+                {days[i].toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </text>
+            ))}
+            {series.map((v) => (
+              <path key={v.id} d={pathFor(v.points)} fill="none" stroke={v.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            ))}
+            {series.map((v) =>
+              v.points.map((s, i) => (
+                <circle key={`${v.id}-${i}`} cx={xFor(i, days.length)} cy={yFor(s)} r="4" fill={v.color} stroke="#fff" strokeWidth="2">
+                  <title>{`${v.name} — ${days[i].toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}: ${s}/3`}</title>
+                </circle>
+              ))
+            )}
+          </svg>
+          <div style={sh.legendRow}>
+            {series.map((v) => (
+              <div key={v.id} style={sh.legendItem}>
+                <span style={{ ...sh.legendDot, background: v.color }} />
+                {v.name}
+                <span style={sh.legendScore}>{v.points[v.points.length - 1]}/3 today</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function HabitTracker() {
+      const [habits,      setHabits]      = useState(initialState);
+      const [showConfig,  setShowConfig]  = useState(false);
+      const [syncStatus,  setSyncStatus]  = useState(null);
+      const [submitted,   setSubmitted]   = useState(false);
+      const [history,     setHistory]     = useState(() => loadHistory());
+      const [notes,       setNotes]       = useState("");
+
+      const todayKey = dateKey(new Date());
+
+      // Resume today's entry (if this browser already saved one) so a refresh doesn't lose progress.
+      useEffect(() => {
+        const todayEntry = history[todayKey];
+        if (todayEntry) {
+          setHabits((prev) => {
+            const next = {};
+            VALUES.forEach((v) => {
+              const savedScore     = todayEntry.scores    && todayEntry.scores[v.id];
+              const savedPractices = todayEntry.practices && todayEntry.practices[v.id];
+              next[v.id] = {
+                score: savedScore != null ? savedScore : prev[v.id].score,
+                practices: savedPractices ? { ...prev[v.id].practices, ...savedPractices } : prev[v.id].practices,
+              };
+            });
+            return next;
+          });
+          if (todayEntry.notes) setNotes(todayEntry.notes);
+          setSubmitted(true);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+
+      const flash = (type, msg) => {
+        setSyncStatus({ type, msg });
+        setTimeout(() => setSyncStatus(null), 3000);
+      };
+
+      const togglePractice = (valueId, practice) =>
+        setHabits((prev) => ({
+          ...prev,
+          [valueId]: {
+            ...prev[valueId],
+            practices: { ...prev[valueId].practices, [practice]: !prev[valueId].practices[practice] },
+          },
+        }));
+
+      const setScore = (valueId, score) =>
+        setHabits((prev) => ({ ...prev, [valueId]: { ...prev[valueId], score } }));
+
+      const persistToday = () => {
+        const entry = {
+          scores: Object.fromEntries(VALUES.map((v) => [v.id, habits[v.id].score])),
+          practices: Object.fromEntries(VALUES.map((v) => [v.id, { ...habits[v.id].practices }])),
+          notes,
+          total: totalScore,
+          max: maxScore,
+          savedAt: new Date().toISOString(),
+        };
+        const next = { ...history, [todayKey]: entry };
+        setHistory(next);
+        saveHistory(next);
+      };
+
+      const resetDay = () => {
+        const next = { ...history };
+        delete next[todayKey];
+        setHistory(next);
+        saveHistory(next);
+        setHabits(initialState());
+        setNotes("");
+        setSubmitted(false);
+        setSyncStatus(null);
+      };
+
+      const buildMarkdown = () => {
+        const keys = Object.keys(history).sort().reverse();
+        if (keys.length === 0) return "# Amicos Daily Practice Log\n\nNo entries yet — save a day to start your log.\n";
+        const lines = ["# Amicos Daily Practice Log", ""];
+        keys.forEach((key) => {
+          const entry = history[key];
+          const d = new Date(`${key}T00:00:00`);
+          const label = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+          lines.push(`## ${label}`, "");
+          VALUES.forEach((v) => {
+            const score = (entry.scores && entry.scores[v.id]) || 0;
+            const practiceState = (entry.practices && entry.practices[v.id]) || {};
+            const doneList = v.practices.map((p) => `${p} ${practiceState[p] ? "✓" : "—"}`).join(", ");
+            lines.push(`- **${v.name}**: ${score}/3 (${doneList})`);
+          });
+          lines.push(`- **Total**: ${entry.total != null ? entry.total : "—"}/${entry.max != null ? entry.max : VALUES.length * 3}`);
+          if (entry.notes && entry.notes.trim()) {
+            lines.push("", "  Notes:", `  > ${entry.notes.trim().replace(/\n/g, "\n  > ")}`);
+          }
+          lines.push("");
+        });
+        return lines.join("\n");
+      };
+
+      const downloadMarkdown = () => {
+        const md = buildMarkdown();
+        const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "amicos-habit-log.md";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        flash("success", "Downloaded amicos-habit-log.md");
+      };
+
+      const totalScore = VALUES.reduce((sum, v) => sum + (habits[v.id].score || 0), 0);
+      const maxScore   = VALUES.length * 3;
+      const dayCount   = Object.keys(history).length;
+
+      const pastNotes = Object.entries(history)
+        .filter(([key, entry]) => key !== todayKey && entry.notes && entry.notes.trim())
+        .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+        .slice(0, 6);
+
+      const dateStr = new Date().toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric",
+      });
+
+      return (
+        <div style={sh.shell}>
+
+          {/* ── Header ── */}
+          <header style={sh.header}>
+            <div style={sh.hLeft}>
+              <EnsoMark size={38} />
+              <div>
+                <div style={sh.wordmark}>amicos</div>
+                <div style={sh.dateLine}>{dateStr}</div>
+              </div>
+            </div>
+            <div style={sh.hRight}>
+              <div style={sh.totalPill}>
+                <span style={sh.totalNum}>{totalScore}</span>
+                <span style={sh.totalDenom}>&nbsp;/ {maxScore}</span>
+              </div>
+              <button style={sh.iconBtn} onClick={() => setShowConfig(!showConfig)} title="Your data & export">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9C8E86" strokeWidth="1.8">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+                </svg>
+              </button>
+            </div>
+          </header>
+
+          {/* ── Data & export panel ── */}
+          {showConfig && (
+            <div style={sh.cfgPanel} className="fade-in">
+              <div style={sh.cfgHeading}>Your data</div>
+              <p style={sh.cfgNote}>
+                Entries are saved privately in this browser — no account, no cloud sync, no Notion.
+                Download a Markdown file anytime to back up your log or move it somewhere else.
+              </p>
+              <p style={sh.cfgNote}>{dayCount} day{dayCount === 1 ? "" : "s"} logged so far.</p>
+              <button style={sh.saveBtn} onClick={downloadMarkdown}>Download log (.md)</button>
+            </div>
+          )}
+
+          {/* ── Status toast ── */}
+          {syncStatus && (
+            <div style={{
+              ...sh.toast,
+              background:  syncStatus.type === "success" ? "#FDF0C4" : "#FEE8E8",
+              borderColor: syncStatus.type === "success" ? "#E8A820" : "#E87A7A",
+              color:       syncStatus.type === "success" ? "#5C4E46" : "#8B2020",
+            }} className="fade-in">
+              {syncStatus.msg}
+            </div>
+          )}
+
+          {/* ── Intro line ── */}
+          <div style={sh.intro}>{microcopy(totalScore, maxScore)}</div>
+
+          {/* ── Value cards ── */}
+          <div style={sh.grid}>
+            {VALUES.map((v, vi) => {
+              const checked = Object.values(habits[v.id].practices).filter(Boolean).length;
+              const pct     = (checked / v.practices.length) * 100;
+              const score   = habits[v.id].score;
+
+              return (
+                <div key={v.id} style={sh.card} className="card-reveal" data-i={vi}>
+
+                  <div style={sh.cardTop}>
+                    <div style={sh.cardName}>{v.name}</div>
+                    <div style={sh.cardCount}>{checked} / {v.practices.length}</div>
+                  </div>
+
+                  <div style={sh.track}>
+                    <div style={{ ...sh.fill, width: `${pct}%` }} />
+                  </div>
+
+                  <div style={sh.practices}>
+                    {v.practices.map((p) => {
+                      const done = habits[v.id].practices[p];
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => togglePractice(v.id, p)}
+                          className="practice-btn"
+                          style={{
+                            ...sh.practice,
+                            background:  done ? "#FDF0C4" : "#FAF7F2",
+                            borderColor: done ? "#E8A820" : "#F3EDE3",
+                            color:       done ? "#2C2420" : "#9C8E86",
+                          }}
+                        >
+                          <span style={{ color: done ? "#E8A820" : "#D8CEC8", fontSize: 10 }}>
+                            {done ? "●" : "○"}
+                          </span>
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div style={sh.scoreRow}>
+                    <span style={sh.scoreLabel}>Daily score</span>
+                    <div style={sh.scoreBtns}>
+                      {[1, 2, 3].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setScore(v.id, n)}
+                          style={{
+                            ...sh.scoreBtn,
+                            background:  score === n ? "#E8A820" : score > n ? "#FDF0C4" : "#fff",
+                            borderColor: score >= n  ? "#E8A820" : "#F3EDE3",
+                            color:       score === n ? "#fff"    : score > n ? "#C08010" : "#9C8E86",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Trend ── */}
+          <TrendChart history={history} habits={habits} todayKey={todayKey} />
+
+          {/* ── Notes ── */}
+          <div style={sh.notesCard}>
+            <div style={sh.notesHeading}>Notes</div>
+            <textarea
+              style={sh.textarea}
+              rows={3}
+              placeholder="What stood out today?"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+            {pastNotes.length > 0 && (
+              <div style={sh.notesLogWrap}>
+                {pastNotes.map(([key, entry]) => (
+                  <div key={key} style={sh.notesLogItem}>
+                    <div style={sh.notesLogDate}>
+                      {new Date(`${key}T00:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                    </div>
+                    {entry.notes}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Footer ── */}
+          <footer style={sh.footer}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <EnsoMark size={22} />
+              <div>
+                <div style={sh.fScore}>
+                  {totalScore}
+                  <span style={{ fontSize: 15, color: "#9C8E86", fontWeight: 300 }}> / {maxScore}</span>
+                </div>
+                <div style={sh.fLabel}>today's total</div>
+              </div>
+            </div>
+            <div style={sh.fActions}>
+              {submitted && (
+                <button style={sh.ghostBtn} onClick={resetDay}>Reset day</button>
+              )}
+              <button
+                style={sh.primaryBtn}
+                onClick={() => { persistToday(); flash("success", "Saved to your log."); setSubmitted(true); }}
+              >
+                Save day
+              </button>
+            </div>
+          </footer>
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<HabitTracker />);
+  </script>
+</body>
+</html>
